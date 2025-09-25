@@ -1,6 +1,3 @@
-# Main Terraform configuration for secure air-gapped Kubernetes cluster
-# This file serves as the entry point and orchestrates all modules
-
 terraform {
   required_version = ">= 1.13.3"
   required_providers {
@@ -15,7 +12,6 @@ terraform {
   }
 }
 
-# Data source to get project information
 data "google_project" "current" {
   project_id = var.project_id
 }
