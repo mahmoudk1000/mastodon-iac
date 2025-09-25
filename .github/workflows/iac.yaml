@@ -1,35 +1,23 @@
 ---
-name: "Terraform Infrastructure CI/CD"
-
+name: IaC CI/CD
 on:
-  push:
-    branches: [main, develop]
-    paths:
-      - '.iac/**'
-      - 'ansible/**'
-      - '.github/workflows/iac.yaml'
   pull_request:
-    branches: [main, develop]
-    paths:
-      - '.iac/**'
-      - 'ansible/**'
-      - '.github/workflows/iac.yaml'
+    branches: [main]
+  push:
+    branches: [main]
+    paths-ignore: [.github/**]
   workflow_dispatch:
     inputs:
       action:
-        description: 'Action to perform'
+        description: Action to perform
         required: true
-        default: 'plan'
+        default: plan
         type: choice
-        options:
-          - plan
-          - apply
-          - destroy
-
+        options: [plan, apply, destroy]
 env:
   TF_LOG: INFO
-  TF_VERSION: "1.13.3"
-  TF_BACKEND_GIT_VERSION: "0.1.3"
+  TF_VERSION: 1.13.3
+  TF_BACKEND_GIT_VERSION: 0.1.3
   GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
   TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
   TF_VAR_region: ${{ vars.GCP_REGION || 'us-central1' }}
@@ -40,275 +28,153 @@ env:
   TF_VAR_master_node_count: ${{ vars.MASTER_NODE_COUNT || '1' }}
   TF_VAR_worker_node_count: ${{ vars.WORKER_NODE_COUNT || '2' }}
   TF_VAR_machine_type: ${{ vars.MACHINE_TYPE || 'e2-medium' }}
-
 jobs:
   validate:
-    name: "Validate"
+    name: Validate
     runs-on: ubuntu-latest
     outputs:
       tf-fmt: ${{ steps.fmt.outcome }}
       tf-init: ${{ steps.init.outcome }}
       tf-validate: ${{ steps.validate.outcome }}
       security-scan: ${{ steps.security.outcome }}
-      ansible-test: ${{ steps.ansible.outcome }}
     defaults:
       run:
         shell: bash
-        working-directory: ./.iac
+        working-directory: ./terraform
     steps:
-      - name: "Checkout Repository"
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
-      
-      - name: "Setup Terraform Backend Git"
+      - name: Setup Terraform Backend Git
         uses: plumber-cd/setup-terraform-backend-git@v1
         with:
           version: ${{ env.TF_BACKEND_GIT_VERSION }}
-      
-      - name: "Setup Terraform"
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-      
-      - name: "Cache Terraform"
+      - name: Cache Terraform
         uses: actions/cache@v4
         with:
           path: |
-            ./.iac/.terraform
-            ./.iac/.terraform.lock.hcl
-          key: terraform-${{ runner.os }}-${{ hashFiles('.iac/.terraform.lock.hcl') }}
-      
-      - name: "Terraform Format"
+            ./terraform/.terraform
+            ./terraform/.terraform.lock.hcl
+          key: terraform-${{ runner.os }}-${{ hashFiles('terraform/.terraform.lock.hcl')
+            }}
+      - name: Terraform Format
         id: fmt
         run: terraform fmt -check -recursive
         continue-on-error: true
-      
-      - name: "Terraform Init"
+      - name: Terraform Init
         id: init
         run: terraform init
-      
-      - name: "Terraform Validate"
+      - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
-      
-      - name: "Security Scan"
+      - name: Security Scan
         id: security
         uses: bridgecrewio/checkov-action@master
         with:
-          directory: .iac
+          directory: terraform
           framework: terraform
           quiet: true
         continue-on-error: true
-      
-      - name: "Test Ansible Configuration"
-        id: ansible
-        if: hashFiles('ansible/**') != ''
-        run: |
-          # Install Ansible
-          pip install ansible ansible-lint
-          
-          # Test Ansible syntax if submodule exists
-          if [ -d "../ansible" ]; then
-            echo "Testing Ansible playbooks..."
-            find ../ansible -name "*.yml" -o -name "*.yaml" | head -5 | while read file; do
-              echo "Validating $file"
-              ansible-playbook --syntax-check "$file" || true
-            done
-          fi
-          
-          # Test shell scripts
-          echo "Testing shell scripts..."
-          for script in scripts/*.sh; do
-            bash -n "$script" || exit 1
-          done
-        continue-on-error: true
-
   plan:
-    name: "Plan"
+    name: Plan
     runs-on: ubuntu-latest
     needs: validate
-    if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan'
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch'
+      && github.event.inputs.action == 'plan')
     outputs:
       plan-status: ${{ steps.plan.outcome }}
       plan-output: ${{ steps.plan.outputs.stdout }}
     defaults:
       run:
         shell: bash
-        working-directory: ./.iac
+        working-directory: ./terraform
     steps:
-      - name: "Checkout Repository"
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      
-      - name: "Setup Terraform Backend Git"
+      - name: Setup Terraform Backend Git
         uses: plumber-cd/setup-terraform-backend-git@v1
         with:
           version: ${{ env.TF_BACKEND_GIT_VERSION }}
-      
-      - name: "Setup Terraform"
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-      
-      - name: "Restore Cache"
+      - name: Restore Cache
         uses: actions/cache@v4
         with:
           path: |
-            ./.iac/.terraform
-            ./.iac/.terraform.lock.hcl
-          key: terraform-${{ runner.os }}-${{ hashFiles('.iac/.terraform.lock.hcl') }}
-      
-      - name: "Terraform Init"
+            ./terraform/.terraform
+            ./terraform/.terraform.lock.hcl
+          key: terraform-${{ runner.os }}-${{ hashFiles('terraform/.terraform.lock.hcl')
+            }}
+      - name: Terraform Init
         run: terraform init
-      
-      - name: "Terraform Plan"
+      - name: Terraform Plan
         id: plan
         run: |
           terraform plan -no-color -detailed-exitcode -out=tfplan
           echo "exitcode=$?" >> $GITHUB_OUTPUT
         continue-on-error: true
-      
-      - name: "Upload Plan"
+      - name: Upload Plan
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan-${{ github.sha }}
-          path: .iac/tfplan
+          path: terraform/tfplan
           retention-days: 7
-
-  comment:
-    name: "PR Comment"
+  apply:
+    name: Apply
     runs-on: ubuntu-latest
-    needs: [validate, plan]
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: "Update PR Comment"
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            
-            const botComment = comments.find(comment => {
-              return comment.user.type === 'Bot' && comment.body.includes('Terraform CI/CD Results')
-            });
-            
-            const formatStatus = (status) => {
-              const statusMap = {
-                'success': '✅ Pass',
-                'failure': '❌ Fail',
-                'cancelled': '⚠️ Cancelled',
-                'skipped': '⏭️ Skipped'
-              };
-              return statusMap[status] || status;
-            };
-            
-            const output = \`## Terraform CI/CD Results
-            
-            | Check | Status | 
-            |-------|--------|
-            | Format | ${formatStatus('${{ needs.validate.outputs.tf-fmt }}')} |
-            | Init | ${formatStatus('${{ needs.validate.outputs.tf-init }}')} |
-            | Validate | ${formatStatus('${{ needs.validate.outputs.tf-validate }}')} |
-            | Security | ${formatStatus('${{ needs.validate.outputs.security-scan }}')} |
-            | Ansible | ${formatStatus('${{ needs.validate.outputs.ansible-test }}')} |
-            | Plan | ${formatStatus('${{ needs.plan.outputs.plan-status }}')} |
-            
-            **Environment**: \`${{ env.TF_VAR_environment }}\`
-            **Region**: \`${{ env.TF_VAR_region }}\`
-            **Cluster**: \`${{ env.TF_VAR_cluster_name }}\`\`;
-            
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: output
-              });
-            } else {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: output
-              });
-            }
-
-  deploy:
-    name: "Deploy"
-    runs-on: ubuntu-latest
-    needs: [validate, plan]
-    if: |
-      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
-      (github.event.inputs.action == 'apply')
-    environment: 
+    needs: validate
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.action == 'apply')
+    environment:
       name: ${{ github.ref_name == 'main' && 'production' || 'development' }}
     defaults:
       run:
         shell: bash
-        working-directory: ./.iac
+        working-directory: ./terraform
     steps:
-      - name: "Checkout Repository"
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      
-      - name: "Setup Terraform Backend Git"
+      - name: Setup Terraform Backend Git
         uses: plumber-cd/setup-terraform-backend-git@v1
         with:
           version: ${{ env.TF_BACKEND_GIT_VERSION }}
-      
-      - name: "Setup Terraform"
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
-      
-      - name: "Terraform Init"
+      - name: Terraform Init
         run: terraform init
-      
-      - name: "Download Plan"
-        if: github.event_name == 'push'
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-plan-${{ github.sha }}
-          path: .iac/
-        continue-on-error: true
-      
-      - name: "Terraform Apply"
-        run: |
-          if [ -f "tfplan" ] && [ "${{ github.event_name }}" == "push" ]; then
-            terraform apply -auto-approve tfplan
-          else
-            terraform apply -auto-approve
-          fi
-      
-      - name: "Extract Outputs"
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+      - name: Extract Outputs
         id: output
         run: |
           echo "jumper_ip=$(terraform output -raw jumper_external_ip)" >> $GITHUB_OUTPUT
           echo "load_balancer_ip=$(terraform output -raw load_balancer_ip)" >> $GITHUB_OUTPUT
-      
-      - name: "Deployment Summary"
+      - name: Deployment Summary
         run: |
           cat >> $GITHUB_STEP_SUMMARY << 'EOF'
           ## Infrastructure Deployed
-          
-          **Environment**: ${{ env.TF_VAR_environment }}  
-          **Cluster**: ${{ env.TF_VAR_cluster_name }}  
-          **Region**: ${{ env.TF_VAR_region }}  
-          **Masters**: ${{ env.TF_VAR_master_node_count }}  
-          **Workers**: ${{ env.TF_VAR_worker_node_count }}  
-          
-          **Jumper Host**: `ssh ubuntu@${{ steps.output.outputs.jumper_ip }}`  
-          **Load Balancer**: `http://${{ steps.output.outputs.load_balancer_ip }}`  
-          
+          **Environment**: ${{ env.TF_VAR_environment }}
+          **Cluster**: ${{ env.TF_VAR_cluster_name }}
+          **Region**: ${{ env.TF_VAR_region }}
+          **Masters**: ${{ env.TF_VAR_master_node_count }}
+          **Workers**: ${{ env.TF_VAR_worker_node_count }}
+          **Jumper Host**: `ssh ubuntu@${{ steps.output.outputs.jumper_ip }}`
+          **Load Balancer**: `http://${{ steps.output.outputs.load_balancer_ip }}`
           ### Next Steps
           ```bash
           ssh ubuntu@${{ steps.output.outputs.jumper_ip }}
@@ -318,41 +184,36 @@ jobs:
           ./validate-cluster.sh
           ```
           EOF
-
   destroy:
-    name: "Destroy"
+    name: Destroy
     runs-on: ubuntu-latest
-    if: github.event.inputs.action == 'destroy'
-    environment: 
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action ==
+      'destroy'
+    environment:
       name: ${{ github.ref_name == 'main' && 'production' || 'development' }}
     defaults:
       run:
         shell: bash
-        working-directory: ./.iac
+        working-directory: ./terraform
     steps:
-      - name: "Checkout Repository"
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      
-      - name: "Setup Terraform Backend Git"
+      - name: Setup Terraform Backend Git
         uses: plumber-cd/setup-terraform-backend-git@v1
         with:
           version: ${{ env.TF_BACKEND_GIT_VERSION }}
-      
-      - name: "Setup Terraform"
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-      
-      - name: "Terraform Init"
+      - name: Terraform Init
         run: terraform init
-      
-      - name: "Terraform Destroy"
+      - name: Terraform Destroy
         run: terraform destroy -auto-approve
-      
-      - name: "Destroy Summary"
-        run: |
+      - name: Destroy Summary
+        run: |-
           echo "## Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
           echo "Environment: ${{ env.TF_VAR_environment }}" >> $GITHUB_STEP_SUMMARY
           echo "Triggered by: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
