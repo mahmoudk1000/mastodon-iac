@@ -57,23 +57,6 @@ output "ansible_inventory_info" {
   }
 }
 
-output "cluster_setup_commands" {
-  description = "Commands to run on jumper host for cluster setup"
-  value = [
-    "# 1. Test connectivity to all nodes:",
-    "./check-cluster-connectivity.sh",
-    "",
-    "# 2. Initialize Kubernetes cluster with your Ansible role:",
-    "./run-k8s-init.sh", 
-    "",
-    "# 3. Setup kubectl access:",
-    "./setup-kubectl.sh",
-    "",
-    "# 4. Verify cluster is working:",
-    "kubectl get nodes"
-  ]
-}
-
 output "private_key_pem" {
   description = "Private key for cluster access (sensitive)"
   value       = tls_private_key.cluster_ssh.private_key_pem

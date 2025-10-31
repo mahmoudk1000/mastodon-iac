@@ -26,14 +26,6 @@ resource "google_compute_instance" "jumper" {
     ssh-keys = "ubuntu:${tls_private_key.cluster_ssh.public_key_openssh}"
   }
 
-  metadata_startup_script = templatefile("${path.module}/scripts/jumper-init.sh", {
-    cluster_private_key = base64encode(tls_private_key.cluster_ssh.private_key_pem)
-    master_ips         = jsonencode([for i in google_compute_instance.master_nodes : i.network_interface[0].network_ip])
-    worker_ips         = jsonencode([for i in google_compute_instance.worker_nodes : i.network_interface[0].network_ip])
-    master_names       = jsonencode([for i in google_compute_instance.master_nodes : i.name])
-    worker_names       = jsonencode([for i in google_compute_instance.worker_nodes : i.name])
-  })
-
   service_account {
     email  = google_service_account.jumper.email
     scopes = ["cloud-platform"]
