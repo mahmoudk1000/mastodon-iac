@@ -2,9 +2,9 @@
 name: IaC CI/CD
 on:
   pull_request:
-    branches: [main]
+    branches: [test]
   push:
-    branches: [main]
+    branches: [test]
     paths-ignore: [.github/**]
   workflow_dispatch:
     inputs:
@@ -26,7 +26,7 @@ env:
   TF_VAR_environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
   TF_VAR_allowed_ssh_cidrs: ${{ secrets.ALLOWED_SSH_CIDRS }}
   TF_VAR_master_node_count: ${{ vars.MASTER_NODE_COUNT || '1' }}
-  TF_VAR_worker_node_count: ${{ vars.WORKER_NODE_COUNT || '2' }}
+  TF_VAR_worker_node_count: ${{ vars.WORKER_NODE_COUNT || '1' }}
   TF_VAR_machine_type: ${{ vars.MACHINE_TYPE || 'e2-medium' }}
 jobs:
   validate:
